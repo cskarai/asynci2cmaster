@@ -6,7 +6,7 @@ AsyncI2CMaster i2cMaster;
 
 uint8_t state = 0;
 
-void requestCallback(uint8_t status, uint8_t * data, uint8_t datalen);
+void requestCallback(uint8_t status, void *arg, uint8_t * data, uint8_t datalen);
 
 void dumpErrorStatus(uint8_t status)
 {
@@ -24,7 +24,7 @@ void dumpErrorStatus(uint8_t status)
   }
 }
 
-void initCallback(uint8_t status)
+void initCallback(uint8_t status, void *arg)
 {
   if( status == I2C_STATUS_OK )
   {
@@ -35,7 +35,7 @@ void initCallback(uint8_t status)
     dumpErrorStatus(status);
 }
 
-void sendCallback(uint8_t status)
+void sendCallback(uint8_t status, void *arg)
 {
   if( status == I2C_STATUS_OK )
   {
@@ -46,7 +46,7 @@ void sendCallback(uint8_t status)
     dumpErrorStatus(status);
 }
 
-void requestCallback(uint8_t status, uint8_t * data, uint8_t datalen)
+void requestCallback(uint8_t status, void *arg, uint8_t * data, uint8_t datalen)
 {
   if( status == I2C_STATUS_OK )
   {

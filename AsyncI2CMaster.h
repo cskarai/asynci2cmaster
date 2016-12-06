@@ -26,9 +26,9 @@ typedef enum
   I2C_STATUS_NEGATIVE_ACKNOWLEDGE=4,
 };
 
-typedef void (*I2CSendCallback)(uint8_t status);
-typedef void (*I2CRequestCallback)(uint8_t status, uint8_t * data, uint8_t datalen);
-typedef void (*I2CReadCallback)(uint8_t status, uint8_t * data, uint8_t datalen);
+typedef void (*I2CSendCallback)(uint8_t status, void * arg);
+typedef void (*I2CRequestCallback)(uint8_t status, void * arg, uint8_t * data, uint8_t datalen);
+typedef void (*I2CReadCallback)(uint8_t status, void * arg, uint8_t * data, uint8_t datalen);
 
 struct I2CTransaction;
 
@@ -58,7 +58,7 @@ class AsyncI2CMaster
     uint8_t   tries;
     uint8_t   retryCount;
     
-    struct I2CTransaction * allocateTransaction(uint8_t i2cAddress, uint8_t wlen, uint8_t rlen);
+    struct I2CTransaction * allocateTransaction(uint8_t i2cAddress, uint8_t wlen, uint8_t rlen, void * arg);
     void                    startTransaction();
     
     void                    I2C_init();
@@ -81,10 +81,10 @@ class AsyncI2CMaster
     void loop();
     
     // asynchron operation
-    uint8_t send(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen, I2CSendCallback callback);
-    uint8_t request(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen, uint8_t receiveLen, I2CRequestCallback callback);
-    uint8_t read(uint8_t i2cAddress, uint8_t receiveLen, I2CReadCallback callback);
-    uint8_t broadcast(uint8_t * data, uint8_t dataLen, I2CSendCallback callback);
+    uint8_t send(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen, I2CSendCallback callback, void * arg = 0);
+    uint8_t request(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen, uint8_t receiveLen, I2CRequestCallback callback, void * arg = 0);
+    uint8_t read(uint8_t i2cAddress, uint8_t receiveLen, I2CReadCallback callback, void * arg = 0);
+    uint8_t broadcast(uint8_t * data, uint8_t dataLen, I2CSendCallback callback, void * arg = 0);
     uint8_t setRetryCount(uint8_t count) {retryCount = count;};
 };
 

@@ -51,6 +51,7 @@ struct I2CTransaction
     I2CRequestCallback requestCb;
     I2CReadCallback    readCb;
   } cb;
+  void * arg;
   uint8_t data[0];
 };
 
@@ -66,7 +67,7 @@ void AsyncI2CMaster::begin()
   I2C_init();
 }
 
-struct I2CTransaction * AsyncI2CMaster::allocateTransaction(uint8_t i2cAddress, uint8_t wlen, uint8_t rlen)
+struct I2CTransaction * AsyncI2CMaster::allocateTransaction(uint8_t i2cAddress, uint8_t wlen, uint8_t rlen, void * arg)
 {
   uint8_t len = ((wlen > rlen) ? wlen : rlen) + sizeof(struct I2CTransaction);
   if( len & 3 )
@@ -84,6 +85,7 @@ struct I2CTransaction * AsyncI2CMaster::allocateTransaction(uint8_t i2cAddress, 
   t->readLen = rlen;
   t->writeLen = wlen;
   t->i2cAddress = i2cAddress;
+  t->arg = arg;
   
   bufferPtr += len;
   return t;
@@ -99,12 +101,12 @@ void AsyncI2CMaster::startTransaction()
   }
 }
 
-uint8_t AsyncI2CMaster::send(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen, I2CSendCallback callback)
+uint8_t AsyncI2CMaster::send(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen, I2CSendCallback callback, void * arg)
 {
   uint8_t ret; 
   DISABLED_IRQ_SECTION_START;
   
-  struct I2CTransaction * t = allocateTransaction(i2cAddress, dataLen, 0);
+  struct I2CTransaction * t = allocateTransaction(i2cAddress, dataLen, 0, arg);
   if( t != 0 )
   {
     t->cb.sendCb = callback;
@@ -121,17 +123,17 @@ uint8_t AsyncI2CMaster::send(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen
   return ret;
 }
 
-uint8_t AsyncI2CMaster::broadcast(uint8_t * data, uint8_t dataLen, I2CSendCallback callback)
+uint8_t AsyncI2CMaster::broadcast(uint8_t * data, uint8_t dataLen, I2CSendCallback callback, void * arg)
 {
-  return send(0, data, dataLen, callback);
+  return send(0, data, dataLen, callback, arg);
 }
 
-uint8_t AsyncI2CMaster::request(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen, uint8_t receiveLen, I2CRequestCallback callback)
+uint8_t AsyncI2CMaster::request(uint8_t i2cAddress, uint8_t * data, uint8_t dataLen, uint8_t receiveLen, I2CRequestCallback callback, void * arg)
 {
   uint8_t ret; 
   DISABLED_IRQ_SECTION_START;
   
-  struct I2CTransaction * t = allocateTransaction(i2cAddress, dataLen, receiveLen );
+  struct I2CTransaction * t = allocateTransaction(i2cAddress, dataLen, receiveLen, arg );
   if( t == 0 )
     ret = I2C_STATUS_OUT_OF_MEMORY;
   else
@@ -140,6 +142,27 @@ uint8_t AsyncI2CMaster::request(uint8_t i2cAddress, uint8_t * data, uint8_t data
     memcpy(t->data, data, dataLen);
     t->operation = OPERATION_REQUEST;
 
+    startTransaction();
+    ret = I2C_STATUS_OK;
+  }
+
+  DISABLED_IRQ_SECTION_LEAVE;
+  return ret;
+}
+
+uint8_t AsyncI2CMaster::read(uint8_t i2cAddress, uint8_t receiveLen, I2CReadCallback callback, void * arg)
+{
+  uint8_t ret;
+  DISABLED_IRQ_SECTION_START;
+  
+  struct I2CTransaction * t = allocateTransaction(i2cAddress, 0, receiveLen, arg);
+  if( t == 0 )
+    ret = I2C_STATUS_OUT_OF_MEMORY;
+  else
+  {
+    t->cb.readCb = callback;
+    t->operation = OPERATION_READ;
+  
     startTransaction();
     ret = I2C_STATUS_OK;
   }
@@ -165,14 +188,14 @@ void AsyncI2CMaster::loop()
           switch(t->operation)
           {
             case OPERATION_SEND:
-              t->cb.sendCb(status);
+              t->cb.sendCb(status, t->arg);
               break;
             case OPERATION_READ:
-              t->cb.readCb(status, t->data, t->readLen);
+              t->cb.readCb(status, t->arg, t->data, t->readLen);
               break;
             case OPERATION_REQUEST:
             case OPERATION_REQUEST_READ:
-              t->cb.readCb(status, t->data, t->readLen);
+              t->cb.requestCb(status, t->arg, t->data, t->readLen);
               break;
           }
         }
@@ -196,14 +219,14 @@ void AsyncI2CMaster::loop()
           switch(t->operation)
           {
             case OPERATION_SEND:
-              t->cb.sendCb(status);
+              t->cb.sendCb(status, t->arg);
               break;
             case OPERATION_READ:
-              t->cb.readCb(status, 0, 0);
+              t->cb.readCb(status, t->arg, 0, 0);
               break;
             case OPERATION_REQUEST:
             case OPERATION_REQUEST_READ:
-              t->cb.requestCb(status, 0, 0);
+              t->cb.requestCb(status, t->arg, 0, 0);
               break;
           }
         }
@@ -241,27 +264,6 @@ void AsyncI2CMaster::loop()
   }
 }
 
-uint8_t AsyncI2CMaster::read(uint8_t i2cAddress, uint8_t receiveLen, I2CReadCallback callback)
-{
-  uint8_t ret;
-  DISABLED_IRQ_SECTION_START;
-  
-  struct I2CTransaction * t = allocateTransaction(i2cAddress, 0, receiveLen);
-  if( t == 0 )
-    ret = I2C_STATUS_OUT_OF_MEMORY;
-  else
-  {
-    t->cb.readCb = callback;
-    t->operation = OPERATION_READ;
-  
-    startTransaction();
-    ret = I2C_STATUS_OK;
-  }
-
-  DISABLED_IRQ_SECTION_LEAVE;
-  return ret;
-}
-
 #if defined(ESP8266)
 
 #define SDA_LOW()   (GPES = (1 << pinSDA)) //Enable SDA (becomes output and since GPO is 0 for the pin, it will pull the line low)
@@ -286,6 +288,7 @@ typedef enum
   WAIT_1_PULSE,           // wait 1 pulse
   WAIT_DATA_HIGH,
   WAIT_CLOCK_HIGH,
+  WAIT_STOPPING,          // wait for stopping
 } I2CBitBangState;
 
 I2CBitBangState startBitBang[] = {
@@ -321,7 +324,7 @@ I2CBitBangState readByteBitBang[] = {
 };
 
 I2CBitBangState stopBitBang[] = {
-  DATA_LOW, WAIT_25PC_PULSE, CLOCK_HIGH, WAIT_CLOCK_HIGH, WAIT_1_PULSE, DATA_HIGH, WAIT_DATA_HIGH, WAIT_1_PULSE,
+  DATA_LOW, WAIT_25PC_PULSE, CLOCK_HIGH, WAIT_CLOCK_HIGH, WAIT_1_PULSE, DATA_HIGH, WAIT_DATA_HIGH, WAIT_STOPPING,
   DONE
 };
 
@@ -406,15 +409,19 @@ void AsyncI2CMaster::I2C_handle(struct I2CTransaction *)
         break;
       case WAIT_25PC_PULSE:
         savedCycle = ESP.getCycleCount();
-        cycleToWait = (F_CPU / I2C_FREQ)/4;
+        cycleToWait = (F_CPU / I2C_FREQ / 2)/4;
         break;
       case WAIT_75PC_PULSE:
         savedCycle = ESP.getCycleCount();
-        cycleToWait = 3*(F_CPU / I2C_FREQ)/4;
+        cycleToWait = 3*(F_CPU / I2C_FREQ / 2)/4;
         break;
       case WAIT_1_PULSE:
         savedCycle = ESP.getCycleCount();
-        cycleToWait = (F_CPU / I2C_FREQ);
+        cycleToWait = (F_CPU / I2C_FREQ / 2);
+        break;
+      case WAIT_STOPPING:
+        savedCycle = ESP.getCycleCount();
+        cycleToWait = (F_CPU / I2C_FREQ / 2) * 10;
         break;
       case WAIT_DATA_HIGH:
         if( ! SDA_READ() )
